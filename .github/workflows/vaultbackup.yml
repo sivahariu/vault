@@ -11,15 +11,31 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Vault CLI on macOS Runner
+      - name: Debug Environment & Install Vault CLI
         run: |
-          echo "Checking/Installing Vault CLI for macOS..."
+          echo "=== DEBUG: Environment Info == "
+          echo "User: $(whoami)"
+          echo "PATH: $PATH"
+          which brew || echo "brew not in PATH"
+          
+          echo "=== Installing/Verifying Vault CLI ==="
           if ! command -v vault &> /dev/null; then
-              echo "Vault not found. Installing via Homebrew..."
-              brew install hashicorp/tap/vault
-          else
-              echo "Vault is already installed."
+              echo "Vault not found in PATH, checking common locations or downloading..."
+              if command -v brew &> /dev/null; then
+                  brew install hashicorp/tap/vault || true
+              fi
           fi
+          
+          # Fallback direct download for macOS if vault is still missing
+          if ! command -v vault &> /dev/null; then
+              echo "Downloading Vault binary directly for macOS..."
+              curl -O -L https://releases.hashicorp.com/vault/1.16.2/vault_1.16.2_darwin_arm64.zip
+              unzip -o vault_1.16.2_darwin_arm64.zip
+              chmod +x vault
+              sudo mv vault /usr/local/bin/ || mv vault ./vault-bin/
+              export PATH="$PATH:$(pwd)"
+          fi
+          
           vault --version
 
       - name: Authenticate and Save Raft Snapshot
