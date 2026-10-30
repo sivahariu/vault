@@ -11,10 +11,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Vault CLI
-        uses: hashicorp/setup-vault@v3
-        with:
-          vault-version: 'latest'
+      - name: Install Vault CLI Manually
+        run: |
+          echo "Downloading and installing Vault CLI..."
+          wget -O vault.zip https://releases.hashicorp.com/vault/1.16.2/vault_1.16.2_linux_amd64.zip
+          unzip vault.zip
+          sudo mv vault /usr/local/bin/
+          vault --version
 
       - name: Authenticate and Save Raft Snapshot
         env:
