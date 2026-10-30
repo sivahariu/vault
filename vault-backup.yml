@@ -1,0 +1,149 @@
+name: Vault Backup and Secret Audit
+
+on:
+workflow_dispatch:
+
+jobs:
+backup-and-report:
+name: Vault Backup & Secret Count Report
+runs-on: ubuntu-latest
+steps:
+- name: Checkout Repository
+uses: actions/checkout@v4
+
+  - name: Setup Vault CLI
+    uses: hashicorp/setup-vault@v3
+    with:
+      vault-version: 'latest'
+
+  - name: Authenticate and Save Raft Snapshot
+    env:
+      VAULT_ADDR: ${{ secrets.VAULT_ADDR || 'https://48d6-117-200-224-243.ngrok-free.app' }}
+      VAULT_TOKEN: ${{ secrets.VAULT_TOKEN || 'hvs.F2uUlBvOQg3uqvWzLpNkMqS4' }}
+    run: |
+      echo "Checking Vault status..."
+      vault status
+      
+      TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+      SNAPSHOT_FILE="vault-backup-$TIMESTAMP.snap"
+      
+      echo "Initiating Raft snapshot save to $SNAPSHOT_FILE..."
+      vault operator raft snapshot save "$SNAPSHOT_FILE"
+      
+      echo "Snapshot created successfully."
+      echo "SNAPSHOT_FILE=$SNAPSHOT_FILE" >> $GITHUB_ENV
+
+  - name: Generate Secret Count Report
+    env:
+      VAULT_ADDR: ${{ secrets.VAULT_ADDR || 'https://48d6-117-200-224-243.ngrok-free.app' }}
+      VAULT_TOKEN: ${{ secrets.VAULT_TOKEN || 'hvs.F2uUlBvOQg3uqvWzLpNkMqS4' }}
+    run: |
+      python3 -c '
+      import subprocess
+      import json
+      import os
+
+      # List keys under secret/
+      res = subprocess.run(["vault", "kv", "list", "-format=json", "secret/"], capture_output=True, text=True)
+      if res.returncode != 0:
+          print("Failed to list secrets:", res.stderr)
+          paths = []
+      else:
+          try:
+              paths = json.loads(res.stdout)
+          except Exception as e:
+              print("Error parsing json:", e)
+              paths = []
+
+      report_rows = []
+      for path in paths:
+          clean_path = path.rstrip("/")
+          secret_res = subprocess.run(["vault", "kv", "get", "-format=json", f"secret/{clean_path}"], capture_output=True, text=True)
+          field_count = 0
+          if secret_res.returncode == 0:
+              try:
+                  sec_data = json.loads(secret_res.stdout)
+                  data_fields = sec_data.get("data", {}).get("data", {})
+                  field_count = len(data_fields)
+              except Exception:
+                  pass
+          report_rows.append((clean_path, field_count))
+
+      # 1. Generate Markdown Table for GitHub Step Summary
+      markdown = "### 📊 Vault Secret Inventory Report\n\n"
+      markdown += "| Application / Path | Secret Entries Count |\n"
+      markdown += "| :--- | :---: |\n"
+      if report_rows:
+          for app, count in report_rows:
+              markdown += f"| `{app}` | **{count}** |\n"
+      else:
+          markdown += "| *No secrets found* | 0 |\n"
+
+      summary_file = os.getenv("GITHUB_STEP_SUMMARY")
+      if summary_file:
+          with open(summary_file, "a") as f:
+              f.write(markdown)
+
+      # 2. Generate Clean HTML Report
+      html = """<!DOCTYPE html>
+      <html>
+      <head>
+          <title>Vault Secrets Audit Report</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9f9f9; }
+              h2 { color: #333; }
+              table { border-collapse: collapse; width: 450px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+              th, td { padding: 10px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+              th { background-color: #0056b3; color: white; }
+              tr:hover { background-color: #f1f1f1; }
+              .count { font-weight: bold; text-align: center; }
+          </style>
+      </head>
+      <body>
+          <h2>🔒 Vault Secrets Audit & Backup Report</h2>
+          <p>The Raft snapshot backup completed successfully. Below is the secret count per application:</p>
+          <table>
+              <thead>
+                  <tr>
+                      <th>Application / Path</th>
+                      <th style="text-align: center;">Secret Entries Count</th>
+                  </tr>
+              </thead>
+              <tbody>
+      """
+      if report_rows:
+          for app, count in report_rows:
+              html += f"            <tr><td><code>{app}</code></td><td class=\"count\">{count}</td></tr>\n"
+      else:
+          html += "            <tr><td colspan=\"2\"><em>No secrets found</em></td></tr>\n"
+
+      html += """        </tbody>
+          </table>
+      </body>
+      </html>"""
+
+      # Save HTML File
+      with open("vault-report.html", "w") as f:
+          f.write(html)
+      '
+
+  - name: Display HTML Report in Logs (Debug Option)
+    run: |
+      echo "=================================================="
+      echo "             HTML REPORT DEBUG OUTPUT             "
+      echo "=================================================="
+      cat vault-report.html
+      echo ""
+      echo "=================================================="
+
+  # - name: Send Email Report
+  #   uses: dawidd6/action-send-mail@v3
+  #   with:
+  #     server_address: ${{ secrets.SMTP_SERVER }}
+  #     server_port: ${{ secrets.SMTP_PORT }}
+  #     username: ${{ secrets.SMTP_USERNAME }}
+  #     password: ${{ secrets.SMTP_PASSWORD }}
+  #     subject: "Vault Backup & Audit Report"
+  #     to: ${{ secrets.NOTIFICATION_EMAIL }}
+  #     from: "Vault Backup Bot <no-reply@vault-audit.local>"
+  #     html_body: file://vault-report.html
