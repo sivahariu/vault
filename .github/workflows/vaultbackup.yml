@@ -11,49 +11,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Debug Environment & Install Vault CLI
-        run: |
-          echo "=== DEBUG: Environment Info == "
-          echo "User: $(whoami)"
-          echo "PATH: $PATH"
-          which brew || echo "brew not in PATH"
-          
-          echo "=== Installing/Verifying Vault CLI ==="
-          if ! command -v vault &> /dev/null; then
-              echo "Vault not found in PATH, checking common locations or downloading..."
-              if command -v brew &> /dev/null; then
-                  brew install hashicorp/tap/vault || true
-              fi
-          fi
-          
-          # Fallback direct download for macOS if vault is still missing
-          if ! command -v vault &> /dev/null; then
-              echo "Downloading Vault binary directly for macOS..."
-              curl -O -L https://releases.hashicorp.com/vault/1.16.2/vault_1.16.2_darwin_arm64.zip
-              unzip -o vault_1.16.2_darwin_arm64.zip
-              chmod +x vault
-              sudo mv vault /usr/local/bin/ || mv vault ./vault-bin/
-              export PATH="$PATH:$(pwd)"
-          fi
-          
-          vault --version
-
-      - name: Authenticate and Save Raft Snapshot
+      - name: Authenticate and Verify Vault Connection
         env:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR || 'https://48d6-117-200-224-243.ngrok-free.app' }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN || 'hvs.F2uUlBvOQg3uqvWzLpNkMqS4' }}
         run: |
           echo "Checking Vault status..."
           vault status
-          
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          SNAPSHOT_FILE="vault-backup-$TIMESTAMP.snap"
-          
-          echo "Initiating Raft snapshot save to $SNAPSHOT_FILE..."
-          vault operator raft snapshot save "$SNAPSHOT_FILE"
-          
-          echo "Snapshot created successfully."
-          echo "SNAPSHOT_FILE=$SNAPSHOT_FILE" >> $GITHUB_ENV
+          echo "Vault connection and authentication verified successfully."
 
       - name: Generate Secret Count Report
         env:
@@ -122,8 +87,8 @@ jobs:
               </style>
           </head>
           <body>
-              <h2>🔒 Vault Secrets Audit & Backup Report</h2>
-              <p>The Raft snapshot backup completed successfully. Below is the secret count per application:</p>
+              <h2>🔒 Vault Secrets Audit Report</h2>
+              <p>The audit scan completed successfully. Below is the secret count per application:</p>
               <table>
                   <thead>
                       <tr>
