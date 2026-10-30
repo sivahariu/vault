@@ -30,7 +30,7 @@ jobs:
           echo "=================================================="
           echo "[INFO] Step 2: Scanning Vault KV Secrets & Backing Up..."
           echo "=================================================="
-          python3 -c '
+          python3 -u -c '
           import subprocess
           import json
           import os
@@ -38,14 +38,14 @@ jobs:
           print("[Python] Listing keys under secret/...")
           res = subprocess.run(["vault", "kv", "list", "-format=json", "secret/"], capture_output=True, text=True)
           if res.returncode != 0:
-              print("[Python] Failed to list secrets:", res.stderr)
+              print(f"[Python] Failed to list secrets: {res.stderr}")
               paths = []
           else:
               try:
                   paths = json.loads(res.stdout)
                   print(f"[Python] Discovered paths: {paths}")
               except Exception as e:
-                  print("[Python] Error parsing json:", e)
+                  print(f"[Python] Error parsing json: {e}")
                   paths = []
 
           report_rows = []
@@ -65,13 +65,13 @@ jobs:
                       print(f"[Python] Error parsing secret payload for {clean_path}: {e}")
               report_rows.append((clean_path, field_count))
 
-          # 1. Save local JSON Backup file for verification
+          # 1. Save local JSON Backup file
           backup_filename = "vault-secrets-backup.json"
           with open(backup_filename, "w") as f:
               json.dump(backup_data, f, indent=4)
           print(f"[Python] Successfully created local JSON backup: {os.path.abspath(backup_filename)}")
 
-          # 2. Generate Markdown Table for GitHub Step Summary
+          # 2. Generate Clean Markdown Table for GitHub Step Summary
           markdown = "### 📊 Vault Secret Inventory Report\n\n"
           markdown += "| Application / Path | Secret Entries Count |\n"
           markdown += "| :--- | :---: |\n"
@@ -80,11 +80,13 @@ jobs:
                   markdown += f"| `{app}` | **{count}** |\n"
           else:
               markdown += "| *No secrets found* | 0 |\n"
+          markdown += "\n"
 
           summary_file = os.getenv("GITHUB_STEP_SUMMARY")
           if summary_file:
-              with open(summary_file, "a") as f:
+              with open(summary_file, "w") as f:
                   f.write(markdown)
+              print("[Python] Successfully wrote GitHub Step Summary.")
 
           # 3. Generate Clean HTML Report
           html = """<!DOCTYPE html>
