@@ -155,7 +155,6 @@ jobs:
               f.write(html)
           print(f"[Python] Successfully created HTML report.")
           '
-
       - name: Copy Backup Into Vault Container Snapshots Directory
         run: |
           echo "=================================================="
@@ -163,21 +162,20 @@ jobs:
           echo "=================================================="
           CONTAINER_NAME="vault-raft"
           TARGET_DIR="/vault/data/raft/snapshots"
-          
-          # Fallback default if env variable didn't populate for any reason
           FILE_TO_COPY="${BACKUP_FILENAME:-vault-secrets-backup.json}"
           
           echo "Using target file: $FILE_TO_COPY"
           
           if [ -f "$FILE_TO_COPY" ]; then
-              echo "Local backup file found. Proceeding with docker copy..."
+              echo "Local backup file found in workspace."
           else
-              echo "[ERROR] Local backup file $FILE_TO_COPY does not exist in runner workspace!"
+              echo "[ERROR] Local backup file $FILE_TO_COPY does not exist!"
               exit 1
           fi
 
-          if docker ps --format '{{.Names}}' | grep -eq "^${CONTAINER_NAME}$"; then
-              echo "Found running container: $CONTAINER_NAME"
+          # Direct check using docker inspect to see if container is running
+          if docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q "true"; then
+              echo "Container $CONTAINER_NAME is running. Proceeding with copy..."
               
               echo "Ensuring target directory exists inside container..."
               docker exec "$CONTAINER_NAME" mkdir -p "$TARGET_DIR"
@@ -187,10 +185,10 @@ jobs:
               
               echo "[SUCCESS] Backup file successfully placed in Vault snapshot storage!"
           else
-              echo "[WARNING] Container $CONTAINER_NAME is not running. Skipping docker copy."
+              echo "[ERROR] Container $CONTAINER_NAME is not running or not found."
+              exit 1
           fi
           echo "=================================================="
-
       - name: Verify File Systems (Runner & Container Snapshots)
         run: |
           echo "=================================================="
