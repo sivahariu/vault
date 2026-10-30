@@ -16,35 +16,43 @@ jobs:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR || 'https://48d6-117-200-224-243.ngrok-free.app' }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN || 'hvs.F2uUlBvOQg3uqvWzLpNkMqS4' }}
         run: |
-          echo "Checking Vault status..."
+          echo "=================================================="
+          echo "[INFO] Step 1: Checking Vault Connection & Status..."
+          echo "=================================================="
           vault status
-          echo "Vault connection and authentication verified successfully."
+          echo "[SUCCESS] Vault connection and authentication verified."
 
-      - name: Generate Secret Count Report
+      - name: Generate Secret Count Report & File Backup
         env:
           VAULT_ADDR: ${{ secrets.VAULT_ADDR || 'https://48d6-117-200-224-243.ngrok-free.app' }}
           VAULT_TOKEN: ${{ secrets.VAULT_TOKEN || 'hvs.F2uUlBvOQg3uqvWzLpNkMqS4' }}
         run: |
+          echo "=================================================="
+          echo "[INFO] Step 2: Scanning Vault KV Secrets & Backing Up..."
+          echo "=================================================="
           python3 -c '
           import subprocess
           import json
           import os
 
-          # List keys under secret/
+          print("[Python] Listing keys under secret/...")
           res = subprocess.run(["vault", "kv", "list", "-format=json", "secret/"], capture_output=True, text=True)
           if res.returncode != 0:
-              print("Failed to list secrets:", res.stderr)
+              print("[Python] Failed to list secrets:", res.stderr)
               paths = []
           else:
               try:
                   paths = json.loads(res.stdout)
+                  print(f"[Python] Discovered paths: {paths}")
               except Exception as e:
-                  print("Error parsing json:", e)
+                  print("[Python] Error parsing json:", e)
                   paths = []
 
           report_rows = []
+          backup_data = {}
           for path in paths:
               clean_path = path.rstrip("/")
+              print(f"[Python] Fetching secret data for path: secret/{clean_path}")
               secret_res = subprocess.run(["vault", "kv", "get", "-format=json", f"secret/{clean_path}"], capture_output=True, text=True)
               field_count = 0
               if secret_res.returncode == 0:
@@ -52,11 +60,18 @@ jobs:
                       sec_data = json.loads(secret_res.stdout)
                       data_fields = sec_data.get("data", {}).get("data", {})
                       field_count = len(data_fields)
-                  except Exception:
-                      pass
+                      backup_data[clean_path] = data_fields
+                  except Exception as e:
+                      print(f"[Python] Error parsing secret payload for {clean_path}: {e}")
               report_rows.append((clean_path, field_count))
 
-          # 1. Generate Markdown Table for GitHub Step Summary
+          # 1. Save local JSON Backup file for verification
+          backup_filename = "vault-secrets-backup.json"
+          with open(backup_filename, "w") as f:
+              json.dump(backup_data, f, indent=4)
+          print(f"[Python] Successfully created local JSON backup: {os.path.abspath(backup_filename)}")
+
+          # 2. Generate Markdown Table for GitHub Step Summary
           markdown = "### 📊 Vault Secret Inventory Report\n\n"
           markdown += "| Application / Path | Secret Entries Count |\n"
           markdown += "| :--- | :---: |\n"
@@ -71,7 +86,7 @@ jobs:
               with open(summary_file, "a") as f:
                   f.write(markdown)
 
-          # 2. Generate Clean HTML Report
+          # 3. Generate Clean HTML Report
           html = """<!DOCTYPE html>
           <html>
           <head>
@@ -88,7 +103,7 @@ jobs:
           </head>
           <body>
               <h2>🔒 Vault Secrets Audit Report</h2>
-              <p>The audit scan completed successfully. Below is the secret count per application:</p>
+              <p>The audit scan and local JSON backup completed successfully. Below is the secret count per application:</p>
               <table>
                   <thead>
                       <tr>
@@ -109,15 +124,26 @@ jobs:
           </body>
           </html>"""
 
-          # Save HTML File
-          with open("vault-report.html", "w") as f:
+          html_filename = "vault-report.html"
+          with open(html_filename, "w") as f:
               f.write(html)
+          print(f"[Python] Successfully created HTML report: {os.path.abspath(html_filename)}")
           '
 
-      - name: Display HTML Report in Logs (Debug Option)
+      - name: Verify File System and Storage Location
         run: |
           echo "=================================================="
-          echo "            HTML REPORT DEBUG OUTPUT              "
+          echo "[INFO] Step 3: Verifying Workspace File System Logs"
+          echo "=================================================="
+          echo "Current Working Directory: $(pwd)"
+          echo "Listing all generated files in the workspace:"
+          ls -la
+          echo "=================================================="
+
+      - name: Display HTML Report in Logs
+        run: |
+          echo "=================================================="
+          echo "            HTML REPORT CONTENT LOG               "
           echo "=================================================="
           cat vault-report.html
           echo ""
