@@ -6,7 +6,7 @@ workflow_dispatch:
 jobs:
 backup-and-report:
 name: Vault Backup & Secret Count Report
-runs-on: self-hosted
+runs-on: ubuntu-latest
 steps:
 - name: Checkout Repository
 uses: actions/checkout@v4
