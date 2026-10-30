@@ -65,13 +65,16 @@ jobs:
                       print(f"[Python] Error parsing secret payload for {clean_path}: {e}")
               report_rows.append((clean_path, field_count))
 
-          # 1. Save local JSON Backup file
+          # 1. Save local JSON Backup file and get file system details
           backup_filename = "vault-secrets-backup.json"
           with open(backup_filename, "w") as f:
               json.dump(backup_data, f, indent=4)
-          print(f"[Python] Successfully created local JSON backup: {os.path.abspath(backup_filename)}")
+          
+          backup_path = os.path.abspath(backup_filename)
+          backup_size = os.path.getsize(backup_path)
+          print(f"[Python] Successfully created local JSON backup at: {backup_path} ({backup_size} bytes)")
 
-          # 2. Generate Clean Markdown Table for GitHub Step Summary
+          # 2. Generate Clean Markdown Table & Storage Info for GitHub Step Summary
           markdown = "### 📊 Vault Secret Inventory Report\n\n"
           markdown += "| Application / Path | Secret Entries Count |\n"
           markdown += "| :--- | :---: |\n"
@@ -80,27 +83,32 @@ jobs:
                   markdown += f"| `{app}` | **{count}** |\n"
           else:
               markdown += "| *No secrets found* | 0 |\n"
-          markdown += "\n"
+          
+          markdown += f"\n**📁 Backup File Storage Details:**\n"
+          markdown += f"- **File Name:** `{backup_filename}`\n"
+          markdown += f"- **Storage Path:** `{backup_path}`\n"
+          markdown += f"- **File Size:** `{backup_size} bytes`\n\n"
 
           summary_file = os.getenv("GITHUB_STEP_SUMMARY")
           if summary_file:
               with open(summary_file, "w") as f:
                   f.write(markdown)
-              print("[Python] Successfully wrote GitHub Step Summary.")
+              print("[Python] Successfully wrote GitHub Step Summary with storage metadata.")
 
-          # 3. Generate Clean HTML Report
-          html = """<!DOCTYPE html>
+          # 3. Generate Clean HTML Report including Storage Metadata
+          html = f"""<!DOCTYPE html>
           <html>
           <head>
               <title>Vault Secrets Audit Report</title>
               <style>
-                  body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9f9f9; }
-                  h2 { color: #333; }
-                  table { border-collapse: collapse; width: 450px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-                  th, td { padding: 10px 15px; text-align: left; border-bottom: 1px solid #ddd; }
-                  th { background-color: #0056b3; color: white; }
-                  tr:hover { background-color: #f1f1f1; }
-                  .count { font-weight: bold; text-align: center; }
+                  body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f9f9f9; }}
+                  h2, h3 {{ color: #333; }}
+                  table {{ border-collapse: collapse; width: 450px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); margin-bottom: 20px; }}
+                  th, td {{ padding: 10px 15px; text-align: left; border-bottom: 1px solid #ddd; }}
+                  th {{ background-color: #0056b3; color: white; }}
+                  tr:hover {{ background-color: #f1f1f1; }}
+                  .count {{ font-weight: bold; text-align: center; }}
+                  .storage-box {{ background: #fff; padding: 15px; border-left: 4px solid #0056b3; box-shadow: 0 1px 3px rgba(0,0,0,0.1); width: 450px; }}
               </style>
           </head>
           <body>
@@ -121,15 +129,22 @@ jobs:
           else:
               html += "            <tr><td colspan=\"2\"><em>No secrets found</em></td></tr>\n"
 
-          html += """        </tbody>
+          html += f"""        </tbody>
               </table>
+              
+              <h3>📁 Snapshot / Backup Storage Location</h3>
+              <div class=\"storage-box\">
+                  <p><strong>File Name:</strong> <code>{backup_filename}</code></p>
+                  <p><strong>Absolute Path:</strong> <code>{backup_path}</code></p>
+                  <p><strong>File Size:</strong> <code>{backup_size} bytes</code></p>
+              </div>
           </body>
           </html>"""
 
           html_filename = "vault-report.html"
           with open(html_filename, "w") as f:
               f.write(html)
-          print(f"[Python] Successfully created HTML report: {os.path.abspath(html_filename)}")
+          print(f"[Python] Successfully created HTML report with storage details: {os.path.abspath(html_filename)}")
           '
 
       - name: Verify File System and Storage Location
