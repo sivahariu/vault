@@ -65,16 +65,16 @@ jobs:
                       print(f"[Python] Error parsing secret payload for {clean_path}: {e}")
               report_rows.append((clean_path, field_count))
 
-          # 1. Save local JSON Backup file and get file system details
+          # 1. Save local JSON Backup file
           backup_filename = "vault-secrets-backup.json"
           with open(backup_filename, "w") as f:
               json.dump(backup_data, f, indent=4)
           
-          backup_path = os.path.abspath(backup_filename)
-          backup_size = os.path.getsize(backup_path)
-          print(f"[Python] Successfully created local JSON backup at: {backup_path} ({backup_size} bytes)")
+          runner_backup_path = os.path.abspath(backup_filename)
+          backup_size = os.path.getsize(runner_backup_path)
+          print(f"[Python] Successfully created local runner backup at: {runner_backup_path} ({backup_size} bytes)")
 
-          # 2. Generate Clean Markdown Table & Storage Info for GitHub Step Summary
+          # 2. Generate Markdown Table & Storage Info for GitHub Step Summary
           markdown = "### 📊 Vault Secret Inventory Report\n\n"
           markdown += "| Application / Path | Secret Entries Count |\n"
           markdown += "| :--- | :---: |\n"
@@ -85,17 +85,17 @@ jobs:
               markdown += "| *No secrets found* | 0 |\n"
           
           markdown += f"\n**📁 Backup File Storage Details:**\n"
-          markdown += f"- **File Name:** `{backup_filename}`\n"
-          markdown += f"- **Storage Path:** `{backup_path}`\n"
+          markdown += f"- **Runner Workspace Path:** `{runner_backup_path}`\n"
+          markdown += f"- **Vault Container Snapshot Path:** `/vault/data/raft/snapshots/{backup_filename}`\n"
           markdown += f"- **File Size:** `{backup_size} bytes`\n\n"
 
           summary_file = os.getenv("GITHUB_STEP_SUMMARY")
           if summary_file:
               with open(summary_file, "w") as f:
                   f.write(markdown)
-              print("[Python] Successfully wrote GitHub Step Summary with storage metadata.")
+              print("[Python] Successfully wrote GitHub Step Summary.")
 
-          # 3. Generate Clean HTML Report including Storage Metadata
+          # 3. Generate Clean HTML Report
           html = f"""<!DOCTYPE html>
           <html>
           <head>
@@ -103,17 +103,17 @@ jobs:
               <style>
                   body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f9f9f9; }}
                   h2, h3 {{ color: #333; }}
-                  table {{ border-collapse: collapse; width: 450px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); margin-bottom: 20px; }}
+                  table {{ border-collapse: collapse; width: 480px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); margin-bottom: 20px; }}
                   th, td {{ padding: 10px 15px; text-align: left; border-bottom: 1px solid #ddd; }}
                   th {{ background-color: #0056b3; color: white; }}
                   tr:hover {{ background-color: #f1f1f1; }}
                   .count {{ font-weight: bold; text-align: center; }}
-                  .storage-box {{ background: #fff; padding: 15px; border-left: 4px solid #0056b3; box-shadow: 0 1px 3px rgba(0,0,0,0.1); width: 450px; }}
+                  .storage-box {{ background: #fff; padding: 15px; border-left: 4px solid #0056b3; box-shadow: 0 1px 3px rgba(0,0,0,0.1); width: 480px; }}
               </style>
           </head>
           <body>
               <h2>🔒 Vault Secrets Audit Report</h2>
-              <p>The audit scan and local JSON backup completed successfully. Below is the secret count per application:</p>
+              <p>The audit scan and backup completed successfully. Below is the secret count per application:</p>
               <table>
                   <thead>
                       <tr>
@@ -132,10 +132,10 @@ jobs:
           html += f"""        </tbody>
               </table>
               
-              <h3>📁 Snapshot / Backup Storage Location</h3>
+              <h3>📁 Backup Storage Locations</h3>
               <div class=\"storage-box\">
-                  <p><strong>File Name:</strong> <code>{backup_filename}</code></p>
-                  <p><strong>Absolute Path:</strong> <code>{backup_path}</code></p>
+                  <p><strong>Runner Workspace:</strong> <code>{runner_backup_path}</code></p>
+                  <p><strong>Inside Vault Container:</strong> <code>/vault/data/raft/snapshots/{backup_filename}</code></p>
                   <p><strong>File Size:</strong> <code>{backup_size} bytes</code></p>
               </div>
           </body>
@@ -144,17 +144,44 @@ jobs:
           html_filename = "vault-report.html"
           with open(html_filename, "w") as f:
               f.write(html)
-          print(f"[Python] Successfully created HTML report with storage details: {os.path.abspath(html_filename)}")
+          print(f"[Python] Successfully created HTML report.")
           '
 
-      - name: Verify File System and Storage Location
+      - name: Copy Backup Into Vault Container Snapshots Directory
         run: |
           echo "=================================================="
-          echo "[INFO] Step 3: Verifying Workspace File System Logs"
+          echo "[INFO] Step 3: Copying Backup into Vault Container..."
           echo "=================================================="
-          echo "Current Working Directory: $(pwd)"
-          echo "Listing all generated files in the workspace:"
+          CONTAINER_NAME="vault-raft"
+          BACKUP_FILENAME="vault-secrets-backup.json"
+          TARGET_DIR="/vault/data/raft/snapshots"
+          
+          if docker ps --format '{{.Names}}' | grep -eq "^${CONTAINER_NAME}$"; then
+              echo "Found running container: $CONTAINER_NAME"
+              
+              echo "Ensuring target directory exists inside container..."
+              docker exec "$CONTAINER_NAME" mkdir -p "$TARGET_DIR"
+              
+              echo "Copying backup into $CONTAINER_NAME:$TARGET_DIR/$BACKUP_FILENAME"
+              docker cp "$BACKUP_FILENAME" "$CONTAINER_NAME:$TARGET_DIR/$BACKUP_FILENAME"
+              
+              echo "[SUCCESS] Backup file successfully placed in Vault snapshot storage!"
+          else
+              echo "[WARNING] Container $CONTAINER_NAME is not running. Skipping docker copy."
+          fi
+          echo "=================================================="
+
+      - name: Verify File Systems (Runner & Container Snapshots)
+        run: |
+          echo "=================================================="
+          echo "[INFO] Step 4: Verifying File Systems Logs"
+          echo "=================================================="
+          echo "--- 1. Runner Workspace Files ---"
+          pwd
           ls -la
+          
+          echo -e "\n--- 2. Vault Container Snapshot Directory ---"
+          docker exec vault-raft ls -la /vault/data/raft/snapshots || echo "Container directory check skipped."
           echo "=================================================="
 
       - name: Display HTML Report in Logs
